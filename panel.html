@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    padding: 16px;
+    color: var(--text, #e0e0e0);
+    background: transparent;
+    font-size: 13px;
+  }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+  input[type=text] {
+    flex: 1; padding: 7px 10px; border-radius: 6px;
+    border: 1px solid rgba(128,128,128,.3); background: rgba(255,255,255,.05);
+    color: inherit; font-size: 13px;
+  }
+  button {
+    padding: 7px 16px; border-radius: 6px; border: 0; cursor: pointer;
+    background: #4a9eff; color: #fff; font-size: 13px; white-space: nowrap;
+  }
+  button.secondary { background: rgba(128,128,128,.3); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .list { border: 1px solid rgba(128,128,128,.2); border-radius: 6px; max-height: 320px; overflow-y: auto; }
+  .item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid rgba(128,128,128,.1);
+  }
+  .item:last-child { border-bottom: 0; }
+  .item input[type=checkbox] { margin: 0; }
+  .item .name { flex: 1; word-break: break-all; }
+  .item .size { color: #888; font-size: 12px; min-width: 80px; text-align: right; }
+  .item .ext { color: #4a9eff; font-size: 11px; padding: 1px 6px; background: rgba(74,158,255,.15); border-radius: 3px; }
+  .item.done { opacity: .6; }
+  .item.done .name::after { content: ' ✓'; color: #4caf50; }
+  .item.fail .name::after { content: ' ✗'; color: #f44336; }
+  .item.fail .name { color: #f44336; }
+  .status { margin-top: 10px; padding: 8px 12px; border-radius: 6px; background: rgba(76,175,80,.1); font-size: 12px; }
+  .status.err { background: rgba(244,67,54,.1); color: #f44336; }
+  .empty { padding: 24px; text-align: center; color: #888; }
+  .bar { height: 4px; background: rgba(128,128,128,.2); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bar > div { height: 100%; background: #4a9eff; transition: width .2s; }
+  label.check { font-size:12px; color:#888; display:flex; align-items:center; gap:6px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <input type="text" id="dir" placeholder="输入音乐目录路径，如 /music 或 E:\music" />
+    <button id="scanBtn">扫描</button>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" id="selectAll" /> 全选</label>
+    <label class="check"><input type="checkbox" id="skipExist" checked /> 跳过已解密</label>
+    <span style="flex:1"></span>
+    <button id="unlockBtn" class="secondary" disabled>解密选中</button>
+  </div>
+  <div class="list" id="list"><div class="empty">输入目录后点「扫描」</div></div>
+  <div class="bar" id="bar" style="display:none"><div id="barFill" style="width:0"></div></div>
+  <div class="status" id="status" style="display:none"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const API = '/api/plugins/tool.unlock/run';
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function call(op, extra) {
+  const body = Object.assign({ op }, extra);
+  let r, text;
+  try {
+    r = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'Lnh-Music-Tag' },
+      body: JSON.stringify(body)
+    });
+    text = await r.text();
+  } catch (e) {
+    throw new Error('网络请求失败: ' + e.message);
+  }
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { /* 非 JSON，按 HTTP 错误处理 */ }
+  if (!r.ok) {
+    throw new Error((data && data.error) || ('HTTP ' + r.status + ': ' + text.slice(0, 200)));
+  }
+  if (data && data.ok === false) {
+    throw new Error(data.error || '操作失败');
+  }
+  return data;
+}
+
+function fmtSize(b) {
+  b = Number(b) || 0;
+  if (b > 1 << 20) return (b / 1048576).toFixed(1) + ' MB';
+  if (b > 1 << 10) return (b / 1024).toFixed(0) + ' KB';
+  return b + ' B';
+}
+
+function renderList(files) {
+  const list = $('list');
+  if (!files.length) { list.innerHTML = '<div class="empty">没找到加密音乐文件</div>'; return; }
+  list.innerHTML = files.map((f, i) => `
+    <label class="item" data-i="${i}">
+      <input type="checkbox" class="row-check" checked />
+      <span class="ext">${escapeHtml(f.ext)}</span>
+      <span class="name">${escapeHtml(f.name)}</span>
+      <span class="size">${fmtSize(f.size)}</span>
+    </label>
+  `).join('');
+}
+
+async function scan() {
+  const dir = $('dir').value.trim();
+  if (!dir) { showStatus('请输入目录路径', true); return; }
+  $('scanBtn').disabled = true;
+  $('list').innerHTML = '<div class="empty">扫描中…</div>';
+  hideStatus();
+  try {
+    const r = await call('scan', { dir, skip_exist: $('skipExist').checked });
+    window._files = r.files || [];
+    if (!window._files.length) {
+      $('list').innerHTML = '<div class="empty">没找到加密音乐文件（支持 mflac/mgg/ncm/kgm 等）</div>';
+    } else {
+      renderList(window._files);
+      $('selectAll').checked = true;
+    }
+    $('unlockBtn').disabled = !window._files.length;
+    showStatus('找到 ' + window._files.length + ' 个加密文件');
+  } catch (e) {
+    $('list').innerHTML = '<div class="empty">扫描失败</div>';
+    showStatus(e.message, true);
+  } finally {
+    $('scanBtn').disabled = false;
+  }
+}
+
+function rowElement(i) {
+  return document.querySelector(`.item[data-i="${i}"]`);
+}
+
+async function unlock() {
+  const files = window._files || [];
+  const picked = [...document.querySelectorAll('.item')]
+    .filter(it => it.querySelector('.row-check').checked)
+    .map(it => files[Number(it.dataset.i)]);
+  if (!picked.length) { showStatus('请先勾选要解密的文件', true); return; }
+  $('unlockBtn').disabled = true;
+  $('bar').style.display = 'block';
+  $('barFill').style.width = '0';
+  hideStatus();
+  let done = 0, fail = 0;
+  for (let i = 0; i < picked.length; i++) {
+    const f = picked[i];
+    const idx = files.indexOf(f);
+    const item = rowElement(idx);
+    try {
+      const r = await call('unlock', { file: f.path, skip_exist: $('skipExist').checked });
+      if (r && r.ok) { if (item) item.classList.add('done'); done++; }
+      else { if (item) item.classList.add('fail'); fail++; }
+    } catch (e) {
+      if (item) item.classList.add('fail');
+      fail++;
+    }
+    $('barFill').style.width = ((i + 1) / picked.length * 100) + '%';
+  }
+  $('unlockBtn').disabled = false;
+  const st = $('status');
+  st.style.display = 'block';
+  st.className = 'status' + (fail ? ' err' : '');
+  st.textContent = `完成：${done} 成功${fail ? '，' + fail + ' 失败' : ''}`;
+}
+
+function showStatus(msg, isErr) {
+  const st = $('status');
+  st.style.display = 'block';
+  st.className = 'status' + (isErr ? ' err' : '');
+  st.textContent = msg;
+}
+function hideStatus() { $('status').style.display = 'none'; }
+
+// 绑定按钮与全选
+window.addEventListener('load', () => {
+  $('scanBtn').addEventListener('click', scan);
+  $('unlockBtn').addEventListener('click', unlock);
+  $('selectAll').addEventListener('change', e => {
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = e.target.checked; });
+  });
+  $('dir').addEventListener('keydown', e => { if (e.key === 'Enter') scan(); });
+});
+</script>
+</body>
+</html>

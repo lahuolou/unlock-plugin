@@ -1,0 +1,13 @@
+{
+  "name": "tool.unlock",
+  "label": "音乐解锁",
+  "kind": "tool",
+  "version": "1.1.0",
+  "hint": "解密 QQ音乐 mflac/mgg/qmc、网易云 ncm、酷狗 kgm/vpr、酷我 kwm、虾米 xm 等加密音乐为可播放格式",
+  "panel": "panel.html",
+  "fields": [],
+  "entries": {
+    "windows": "bin/unlock-plugin-windows-amd64.exe",
+    "linux": "bin/unlock-plugin-linux-amd64"
+  }
+}
