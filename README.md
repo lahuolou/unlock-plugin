@@ -16,6 +16,15 @@
 
 ## 安装
 
+### 推荐：后台导入 ZIP 插件
+
+1. 登录 LNH-MusicTag 后台
+2. 进入 **插件管理**
+3. 点击 **导入 ZIP 插件**，选择插件包 `tool.unlock-v1.1.0.zip`（可从 Releases 页面下载）
+4. 导入后启用「音乐解锁」插件
+
+### 手动安装
+
 1. 将插件目录整体放入 LNH-MusicTag 插件目录 `plugins/tool.unlock/`：
    - Windows 示例：`C:\config\plugins\tool.unlock\`
    - Linux 示例：`<数据目录>/plugins/tool.unlock/`

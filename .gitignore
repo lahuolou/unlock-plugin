@@ -1,0 +1,2 @@
+# 插件导入包（构建产物，随 GitHub Release 分发）
+*.zip
